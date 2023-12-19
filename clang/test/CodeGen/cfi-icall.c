@@ -14,6 +14,9 @@ void g(int b) {
   void (*fp)() = b ? f : xf;
   // ITANIUM: call i1 @llvm.type.test(ptr {{.*}}, metadata !"_ZTSFvE")
   fp();
+  void __attribute__((annotate("dynamic_fn_ptr"))) (*fp_dynamic)() = b ? f : xf;
+  // ITANIUM-NOT: call i1 @llvm.type.test(ptr {{.*}}, metadata !"_ZTSFvE")
+  fp_dynamic();
 }
 
 // CHECK: declare !type [[TVOID]] !type [[TVOID_GENERALIZED]] {{(dso_local )?}}void @xf({{.*}}

@@ -31,6 +31,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsWebAssembly.h"
@@ -5378,6 +5379,78 @@ LValue CodeGenFunction::EmitStmtExprLValue(const StmtExpr *E) {
                         AlignmentSource::Decl);
 }
 
+static bool hasAnnotation(const llvm::Module *mod, const llvm::Value *val,
+                          const std::string &annot) {
+  llvm::GlobalVariable *annotsGV =
+      mod->getGlobalVariable("llvm.global.annotations");
+  if (!annotsGV)
+    return false;
+
+  llvm::Value *globalAnnots = annotsGV->getOperand(0);
+  llvm::ConstantArray *annotsArray =
+      llvm::dyn_cast<llvm::ConstantArray>(globalAnnots);
+  if (!annotsArray)
+    return false;
+
+  for (llvm::Value *op : annotsArray->operands()) {
+    llvm::ConstantStruct *annotStruct = llvm::cast<llvm::ConstantStruct>(op);
+
+    llvm::Value *annotVal = annotStruct->getOperand(0)->stripPointerCasts();
+    if (annotVal != val)
+      continue;
+
+    llvm::GlobalVariable *annotStrGV = llvm::cast<llvm::GlobalVariable>(
+        annotStruct->getOperand(1)->stripPointerCasts());
+    llvm::StringRef annotStr;
+    getConstantStringInfo(annotStrGV, annotStr);
+
+    if (annotStr == annot)
+      return true;
+  }
+
+  return false;
+}
+
+bool hasAnnotation(const clang::Decl *D, const std::string &Annot) {
+  if (!D || !D->hasAttr<clang::AnnotateAttr>())
+    return false;
+
+  for (auto *A : D->specific_attrs<clang::AnnotateAttr>())
+    if (A->getAnnotation() == Annot)
+      return true;
+  return false;
+}
+
+static bool hasAnnotation(const llvm::Value *V, const std::string &Annot) {
+  auto *LI = llvm::dyn_cast<llvm::LoadInst>(V);
+  if (!LI)
+    return false;
+
+  auto *CI = llvm::dyn_cast<llvm::CallInst>(LI->getPointerOperand());
+  if (!CI)
+    return false;
+
+  auto funcName = CI->getCalledFunction()->getName();
+  if (!funcName.startswith("llvm.var.annotation") &&
+      !funcName.startswith("llvm.ptr.annotation"))
+    return false;
+
+  auto *AnnotArg = llvm::dyn_cast<llvm::ConstantExpr>(CI->getArgOperand(1));
+  if (!AnnotArg)
+    return false;
+
+  auto *AnnotGV = llvm::dyn_cast<llvm::GlobalVariable>(AnnotArg->getOperand(0));
+  if (!AnnotGV || !AnnotGV->hasInitializer())
+    return false;
+
+  auto *AnnotStr =
+      llvm::dyn_cast<llvm::ConstantDataArray>(AnnotGV->getInitializer());
+  if (!AnnotStr)
+    return false;
+
+  return AnnotStr->getAsCString() == Annot;
+}
+
 RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee,
                                  const CallExpr *E, ReturnValueSlot ReturnValue,
                                  llvm::Value *Chain) {
@@ -5465,11 +5538,19 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   }
 
   const auto *FnType = cast<FunctionType>(PointeeType);
+  llvm::Value *CalleePtr = Callee.getFunctionPointer();
+
+  bool isDynamicFnPtr =
+      hasAnnotation(&CGM.getModule(), CalleePtr, "dynamic_fn_ptr") ||
+      hasAnnotation(CalleePtr, "dynamic_fn_ptr") ||
+      hasAnnotation(TargetDecl, "dynamic_fn_ptr");
+
+  bool isNotFunctionDecl = !TargetDecl || !isa<FunctionDecl>(TargetDecl);
 
   // If we are checking indirect calls and this call is indirect, check that the
   // function pointer is a member of the bit set for the function type.
-  if (SanOpts.has(SanitizerKind::CFIICall) &&
-      (!TargetDecl || !isa<FunctionDecl>(TargetDecl))) {
+  if (SanOpts.has(SanitizerKind::CFIICall) && isNotFunctionDecl &&
+      !isDynamicFnPtr) {
     SanitizerScope SanScope(this);
     EmitSanitizerStatReport(llvm::SanStat_CFI_ICall);
 

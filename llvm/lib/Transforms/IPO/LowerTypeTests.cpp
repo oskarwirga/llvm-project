@@ -721,6 +721,32 @@ static bool isKnownTypeIdMember(Metadata *TypeId, const DataLayout &DL,
   return false;
 }
 
+/// Checks the two blocks immediately succeeding a given CallInst for a call to
+/// llvm.ubsantrap.
+bool findSucceedingTrap(llvm::CallInst *CI) {
+  // Iterate over the succeeding instructions
+  for (auto I = CI->getNextNode(); I != nullptr; I = I->getNextNode()) {
+    if (auto BI = llvm::dyn_cast<llvm::BranchInst>(I)) {
+      // Iterate over the first two successors of the branch instruction
+      for (unsigned i = 0, e = std::min(BI->getNumSuccessors(), 2u); i != e;
+           ++i) {
+        llvm::BasicBlock *BB = BI->getSuccessor(i);
+        for (llvm::BasicBlock::iterator II = BB->begin(), IE = BB->end();
+             II != IE; ++II) {
+          if (auto CallI = llvm::dyn_cast<llvm::CallInst>(II)) {
+            if (CallI->getCalledFunction() &&
+                CallI->getCalledFunction()->getName() == "llvm.ubsantrap") {
+              return true;
+            }
+          }
+        }
+      }
+      break; // Only check the blocks immediately succeeding the CallInst
+    }
+  }
+  return false;
+}
+
 /// Lower a llvm.type.test call to its implementation. Returns the value to
 /// replace the call with.
 Value *LowerTypeTestsModule::lowerTypeTestCall(Metadata *TypeId, CallInst *CI,
@@ -728,6 +754,22 @@ Value *LowerTypeTestsModule::lowerTypeTestCall(Metadata *TypeId, CallInst *CI,
   // Delay lowering if the resolution is currently unknown.
   if (TIL.TheKind == TypeTestResolution::Unknown)
     return nullptr;
+
+  // This is a compiler warning which will find always failing callsites
+  if (TIL.TheKind == TypeTestResolution::Unsat &&
+      CI->getFunction()->getName() != "__cfi_check" && findSucceedingTrap(CI)) {
+    if (CI->getDebugLoc()) {
+      auto DL = CI->getDebugLoc();
+      llvm::errs() << "WARNING: Always failing CFI check found in function '"
+                   << CI->getFunction()->getName() << "' at "
+                   << DL->getFilename() << ":" << DL.getLine() << "\n";
+    } else {
+      llvm::errs() << "WARNING: Always failing CFI check found in function '"
+                   << CI->getFunction()->getName()
+                   << "', exact location unknown.\n";
+    }
+  }
+
   if (TIL.TheKind == TypeTestResolution::Unsat)
     return ConstantInt::getFalse(M.getContext());
 

@@ -27,11 +27,11 @@ struct TypeMismatchData {
   extern "C" SANITIZER_INTERFACE_ATTRIBUTE NORETURN \
     void __ubsan_handle_ ## checkname( __VA_ARGS__ );
 
-#define RECOVERABLE(checkname, ...) \
-  extern "C" SANITIZER_INTERFACE_ATTRIBUTE \
-    void __ubsan_handle_ ## checkname( __VA_ARGS__ ); \
-  extern "C" SANITIZER_INTERFACE_ATTRIBUTE NORETURN \
-    void __ubsan_handle_ ## checkname ## _abort( __VA_ARGS__ );
+#define RECOVERABLE(checkname, ...)                                            \
+  extern "C" SANITIZER_WEAK_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE void       \
+      __ubsan_handle_##checkname(__VA_ARGS__);                                 \
+  extern "C" SANITIZER_WEAK_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE            \
+      NORETURN void __ubsan_handle_##checkname##_abort(__VA_ARGS__);
 
 /// \brief Handle a runtime type check failure, caused by either a misaligned
 /// pointer, a null pointer, or a pointer to insufficient storage for the
@@ -228,21 +228,16 @@ RECOVERABLE(cfi_check_fail, CFICheckFailData *Data, ValueHandle Function,
 
 struct ReportOptions;
 
-extern "C" SANITIZER_INTERFACE_ATTRIBUTE void __ubsan_handle_cfi_bad_type(
-    CFICheckFailData *Data, ValueHandle Vtable, bool ValidVtable,
-    ReportOptions Opts);
+RECOVERABLE(cfi_bad_type, CFICheckFailData *Data, ValueHandle Vtable,
+            bool ValidVtable, ReportOptions Opts);
 
 struct FunctionTypeMismatchData {
   SourceLocation Loc;
   const TypeDescriptor &Type;
 };
 
-extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
-__ubsan_handle_function_type_mismatch(FunctionTypeMismatchData *Data,
-                                      ValueHandle Val);
-extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
-__ubsan_handle_function_type_mismatch_abort(FunctionTypeMismatchData *Data,
-                                            ValueHandle Val);
+RECOVERABLE(function_type_mismatch, FunctionTypeMismatchData *Data,
+            ValueHandle Val);
 }
 
 #endif // UBSAN_HANDLERS_H

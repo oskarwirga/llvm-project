@@ -528,6 +528,26 @@ private:
   const PlatformInfo &platformInfo;
 };
 
+class LCSourceVersion final : public LoadCommand {
+  public:
+    LCSourceVersion(uint64_t version)
+        : version(version) {}
+
+    uint32_t getSize() const override {
+      return sizeof(source_version_command);
+    }
+
+    void writeTo(uint8_t *buf) const override {
+      auto *c = reinterpret_cast<source_version_command *>(buf);
+      c->cmd = LC_SOURCE_VERSION;
+      c->cmdsize = getSize();;
+      c->version = version;
+    }
+  private:
+    uint64_t version;
+  };
+
+
 // Stores a unique identifier for the output file based on an MD5 hash of its
 // contents. In order to hash the contents, we must first write them, but
 // LC_UUID itself must be part of the written contents in order for all the
@@ -865,6 +885,8 @@ template <class LP> void Writer::createLoadCommands() {
     in.header->addLoadCommand(make<LCBuildVersion>(config->platformInfo));
   else
     in.header->addLoadCommand(make<LCMinVersion>(config->platformInfo));
+
+  in.header->addLoadCommand(make<LCSourceVersion>(config->sourceVersion));
 
   if (config->secondaryPlatformInfo) {
     in.header->addLoadCommand(

@@ -261,8 +261,12 @@ std::optional<MemoryBufferRef> macho::readFile(StringRef path) {
 
     // FIXME: LD64 has a more complex fallback logic here.
     // Consider implementing that as well?
+    uint32_t targetSub =
+        config->forceExactCpuSubtypeMatch ? target->cpuSubtype
+                                          : (target->cpuSubtype &
+                                              ~MachO::CPU_SUBTYPE_MASK);
     if (cpuType != static_cast<uint32_t>(target->cpuType) ||
-        cpuSubtype != target->cpuSubtype) {
+        cpuSubtype != targetSub) {
       archs.emplace_back(getArchName(cpuType, cpuSubtype));
       continue;
     }

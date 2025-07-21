@@ -153,6 +153,7 @@ struct Configuration {
   uint32_t dylibCompatibilityVersion = 0;
   uint32_t dylibCurrentVersion = 0;
   uint32_t timeTraceGranularity = 500;
+  uint64_t sourceVersion = 0x0001000000000000ULL; // 1.0 default
   unsigned optimize;
   std::string progName;
 

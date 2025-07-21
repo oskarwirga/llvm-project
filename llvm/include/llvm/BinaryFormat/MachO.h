@@ -1135,6 +1135,47 @@ struct dyld_chained_ptr_64_rebase {
   uint64_t bind : 1; // set to 0
 };
 
+struct dyld_chained_ptr_arm64e_rebase
+{
+    uint64_t target : 43;
+    uint64_t high8 : 8;
+    uint64_t next : 11;    // 4 or 8-byte stide
+    uint64_t bind : 1;    // == 0
+    uint64_t auth : 1;    // == 0
+};
+
+struct dyld_chained_ptr_arm64e_bind
+{
+    uint64_t ordinal : 16;
+    uint64_t zero : 16;
+    uint64_t addend : 19;    // +/-256K
+    uint64_t next : 11;    // 4 or 8-byte stide
+    uint64_t bind : 1;    // == 1
+    uint64_t auth : 1;    // == 0
+};
+
+struct dyld_chained_ptr_arm64e_auth_bind {
+  uint64_t ordinal : 16;
+  uint64_t zero : 16;
+  uint64_t diversity : 16;
+  uint64_t addrDiv :  1;
+  uint64_t key :  2;
+  uint64_t next : 11;    // 4 or 8-byte stide
+  uint64_t bind :  1;    // == 1
+  uint64_t auth :  1;    // == 1
+};
+
+struct dyld_chained_ptr_arm64e_auth_rebase
+{
+  uint64_t target    : 32;   // runtimeOffset
+  uint64_t diversity : 16;
+  uint64_t addrDiv   :  1;
+  uint64_t key       :  2;
+  uint64_t next      : 11;    // 4 or 8-byte stide
+  uint64_t bind      :  1;    // == 0
+  uint64_t auth      :  1;    // == 1
+};
+
 // Byte order swapping functions for MachO structs
 
 inline void swapStruct(fat_header &mh) {

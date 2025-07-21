@@ -20,6 +20,7 @@
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Memory.h"
 #include "llvm/Support/xxhash.h"
+#include "llvm/Support/Endian.h"
 
 using namespace llvm;
 using namespace llvm::MachO;
@@ -223,6 +224,23 @@ void ConcatInputSection::writeTo(uint8_t *buf) {
 
     const bool needsFixup = config->emitChainedFixups &&
                             target->hasAttr(r.type, RelocAttrBits::UNSIGNED);
+
+    auto getAuthInfo = [&](const uint8_t *loc) -> std::optional<Reloc::AuthInfo> {
+      if (config->arch() != AK_arm64e ||
+          !target->hasAttr(r.type, RelocAttrBits::AUTH))
+        return std::nullopt;
+
+      uint64_t raw = support::endian::read64le(loc);
+      if ((raw >> 63) == 0)
+        return std::nullopt;
+
+      Reloc::AuthInfo ai;
+      ai.diversity = (raw >> 32) & 0xFFFF;
+      ai.addrDiv = (raw >> 48) & 0x1;
+      ai.key = (raw >> 49) & 0x3;
+      return ai;
+    };
+
     if (target->hasAttr(r.type, RelocAttrBits::SUBTRAHEND)) {
       const Symbol *fromSym = cast<Symbol *>(r.referent);
       const Reloc &minuend = relocs[++i];
@@ -254,7 +272,14 @@ void ConcatInputSection::writeTo(uint8_t *buf) {
         // contiguous).
         referentVA -= firstTLVDataSection->addr;
       } else if (needsFixup) {
-        writeChainedFixup(loc, referentSym, r.addend);
+        auto ai = getAuthInfo(loc);
+        uint64_t segmentBase = 0;
+        if (auto *def = dyn_cast<Defined>(referentSym))
+          if (InputSection *isec = def->isec())
+            segmentBase = isec->parent->parent->addr;
+
+        writeChainedFixup(loc, referentSym, r.addend, segmentBase,
+                          ai ? &*ai : nullptr);
         continue;
       }
     } else if (auto *referentIsec = r.referent.dyn_cast<InputSection *>()) {
@@ -262,7 +287,9 @@ void ConcatInputSection::writeTo(uint8_t *buf) {
       referentVA = referentIsec->getVA(r.addend);
 
       if (needsFixup) {
-        writeChainedRebase(loc, referentVA);
+        auto ai = getAuthInfo(loc);
+        uint64_t segmentBase = referentIsec->parent->parent->addr;
+        writeChainedRebase(loc, referentVA, segmentBase, ai ? &*ai : nullptr);
         continue;
       }
     }

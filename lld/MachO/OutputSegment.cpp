@@ -148,9 +148,13 @@ static int sectionOrder(OutputSection *osec) {
       return std::numeric_limits<int>::max();
     default:
       return StringSwitch<int>(osec->name)
-          .Case(section_names::got, -3)
-          .Case(section_names::lazySymbolPtr, -2)
-          .Case(section_names::const_, -1)
+          .Case(section_names::authGot, -7)
+          .Case(section_names::got, -6)
+          .Case(section_names::lazySymbolPtr, -5)
+          .Case(section_names::const_, -4)
+          .Case(section_names::objcConst,  -3)
+          .Case(section_names::objcSelrefs,  -2)
+          .Case(section_names::objcClassRefs,-1)
           .Default(osec->inputOrder);
     }
   } else if (segname == segment_names::linkEdit) {

@@ -39,7 +39,8 @@ enum class RelocAttrBits {
   LOAD = 1 << 11,      // Relaxable indirect load
   POINTER = 1 << 12,   // Non-relaxable indirect load (pointer is taken)
   UNSIGNED = 1 << 13,  // *_UNSIGNED relocs
-  LLVM_MARK_AS_BITMASK_ENUM(/*LargestValue*/ (1 << 14) - 1),
+  AUTH = 1 << 14,      // ARM64e ptrauth relocs
+  LLVM_MARK_AS_BITMASK_ENUM(/*LargestValue*/ (1 << 15) - 1),
 };
 // Note: SUBTRACTOR always pairs with UNSIGNED (a delta between two symbols).
 
@@ -60,6 +61,13 @@ struct Reloc {
   // gives the destination that this relocation refers to.
   int64_t addend = 0;
   llvm::PointerUnion<Symbol *, InputSection *> referent = nullptr;
+
+  struct AuthInfo {
+    uint16_t diversity;
+    uint8_t key;  // 0-3 (IA/IB/DA/DB)
+    bool addrDiv;
+  };
+  std::optional<AuthInfo> auth;
 
   Reloc() = default;
 

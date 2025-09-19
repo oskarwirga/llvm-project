@@ -10368,8 +10368,12 @@ AArch64TargetLowering::LowerDarwinGlobalTLSAddress(SDValue Op,
   Ops.push_back(Chain);
   Ops.push_back(FuncTLVGet);
 
-  // With ptrauth-calls, the tlv access thunk pointer is authenticated (IA, 0).
-  if (DAG.getMachineFunction().getFunction().hasFnAttribute("ptrauth-calls")) {
+  // On arm64e-apple-*, TLV thunk pointers are always authenticated (IA, 0).
+  // With ptrauth-calls, the tlv access thunk pointer is also authenticated (IA,
+  // 0).
+  if ((Subtarget->isTargetMachO() && Subtarget->getTargetTriple().isArm64e() &&
+       Subtarget->hasPAuth()) ||
+      DAG.getMachineFunction().getFunction().hasFnAttribute("ptrauth-calls")) {
     Opcode = AArch64ISD::AUTH_CALL;
     Ops.push_back(DAG.getTargetConstant(AArch64PACKey::IA, DL, MVT::i32));
     Ops.push_back(DAG.getTargetConstant(0, DL, MVT::i64)); // Integer Disc.

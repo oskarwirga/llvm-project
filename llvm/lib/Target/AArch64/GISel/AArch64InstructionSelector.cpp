@@ -3766,8 +3766,12 @@ bool AArch64InstructionSelector::selectTLSGlobalValue(
   // silly).
   unsigned Opcode = getBLRCallOpcode(MF);
 
-  // With ptrauth-calls, the tlv access thunk pointer is authenticated (IA, 0).
-  if (MF.getFunction().hasFnAttribute("ptrauth-calls")) {
+  // On arm64e-apple-*, TLV thunk pointers are always authenticated (IA, 0).
+  // With ptrauth-calls, the tlv access thunk pointer is also authenticated (IA,
+  // 0).
+  if ((STI.isTargetMachO() && STI.getTargetTriple().isArm64e() &&
+       STI.hasPAuth()) ||
+      MF.getFunction().hasFnAttribute("ptrauth-calls")) {
     assert(Opcode == AArch64::BLR);
     Opcode = AArch64::BLRAAZ;
   }

@@ -263,7 +263,7 @@ std::optional<MemoryBufferRef> macho::readFile(StringRef path) {
     // FIXME: LD64 has a more complex fallback logic here.
     // Consider implementing that as well?
     if (cpuType != static_cast<uint32_t>(target->cpuType) ||
-        cpuSubtype != target->cpuSubtype) {
+        cpuSubtype != (target->cpuSubtype & ~MachO::CPU_SUBTYPE_MASK)) {
       archs.emplace_back(getArchName(cpuType, cpuSubtype));
       continue;
     }
@@ -580,9 +580,43 @@ void ObjFile::parseRelocations(ArrayRef<SectionHeader> sectionHeaders,
     r.pcrel = relInfo.r_pcrel;
     r.length = relInfo.r_length;
     r.offset = relInfo.r_address;
+
+    // For ARM64e authenticated pointer relocations, extract the auth info
+    // (diversity, key, addrDiv) from the upper bits of the raw pointer value.
+    if (target->hasAttr(relInfo.r_type, RelocAttrBits::AUTH)) {
+      const uint8_t *loc = buf + sec.offset + relInfo.r_address;
+      uint64_t raw = read64le(loc);
+      // The auth bit (bit 63) should be set for authenticated pointers
+      if ((raw >> 63) & 1) {
+        Relocation::AuthInfo ai;
+        ai.diversity = (raw >> 32) & 0xFFFF;
+        ai.addrDiv = (raw >> 48) & 0x1;
+        ai.key = (raw >> 49) & 0x3;
+        r.auth = ai;
+      }
+    }
+
     if (relInfo.r_extern) {
       r.referent = symbols[relInfo.r_symbolnum];
       r.addend = isSubtrahend ? 0 : totalAddend;
+
+      // For arm64e UNSIGNED (but NOT AUTHENTICATED_POINTER) relocations with
+      // auth-encoded data (bit 63 set), the embedded value contains auth
+      // encoding in the high bits that should be preserved in the final target.
+      // Extract only the low 32 bits as the actual addend, and store the high
+      // 32 bits for later OR'ing.
+      if (config->arch() == AK_arm64e &&
+          target->hasAttr(relInfo.r_type, RelocAttrBits::UNSIGNED) &&
+          !target->hasAttr(relInfo.r_type, RelocAttrBits::AUTH) &&
+          relInfo.r_length == 3 && !isSubtrahend) {
+        const uint8_t *loc = buf + sec.offset + relInfo.r_address;
+        uint64_t raw = read64le(loc);
+        if ((raw >> 63) & 1) {
+          // Auth-encoded UNSIGNED relocation
+          r.authEncodingBits = raw >> 32;
+          r.addend = llvm::SignExtend64<32>(raw & 0xFFFFFFFF);
+        }
+      }
     } else {
       assert(!isSubtrahend);
       const SectionHeader &referentSecHead =

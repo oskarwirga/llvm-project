@@ -2686,6 +2686,32 @@ AArch64AsmPrinter::lowerConstantPtrAuth(const ConstantPtrAuth &CPA) {
 
   auto *BaseGVB = dyn_cast<GlobalValue>(BaseGV);
 
+  // Swift generates patterns like:
+  //   inttoptr (i64 add (i64 ptrtoint (ptr @global to i64), i64 2) to ptr)
+  // stripAndAccumulateConstantOffsets doesn't handle this pattern.
+  // Try to handle it manually.
+  if (!BaseGVB) {
+    if (auto *CE = dyn_cast<ConstantExpr>(CPA.getPointer())) {
+      if (CE->getOpcode() == Instruction::IntToPtr) {
+        if (auto *AddCE = dyn_cast<ConstantExpr>(CE->getOperand(0))) {
+          if (AddCE->getOpcode() == Instruction::Add) {
+            // Check if it's (ptrtoint @global + constant)
+            if (auto *PtrToIntCE = dyn_cast<ConstantExpr>(AddCE->getOperand(0))) {
+              if (PtrToIntCE->getOpcode() == Instruction::PtrToInt) {
+                if (auto *GV = dyn_cast<GlobalValue>(PtrToIntCE->getOperand(0))) {
+                  if (auto *OffsetCI = dyn_cast<ConstantInt>(AddCE->getOperand(1))) {
+                    BaseGVB = GV;
+                    Offset = OffsetCI->getValue();
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   const MCExpr *Sym;
   if (BaseGVB) {
     // If there is an addend, turn that into the appropriate MCExpr.

@@ -37,6 +37,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/Scalar/LowerConstantIntrinsics.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
@@ -169,7 +170,13 @@ static bool lowerObjCCall(Function &F, RTLIB::LibcallImpl NewFn,
     if (setNonLazyBind && !Fn->isWeakForLinker()) {
       // If we have Native ARC, set nonlazybind attribute for these APIs for
       // performance.
-      Fn->addFnAttr(Attribute::NonLazyBind);
+      // However, when targeting ARM64e (which uses pointer authentication),
+      // we must NOT use NonLazyBind because it causes inline GOT loads which
+      // bypass the linker's authentication stubs. The auth stubs correctly
+      // handle address-discriminated GOT entries by using braa instead of blr.
+      Triple TT(M->getTargetTriple());
+      if (!TT.isArm64e())
+        Fn->addFnAttr(Attribute::NonLazyBind);
     }
   }
 

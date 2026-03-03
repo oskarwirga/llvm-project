@@ -9,6 +9,7 @@
 #include "AArch64PointerAuth.h"
 
 #include "AArch64.h"
+#include "AArch64FrameLowering.h"
 #include "AArch64InstrInfo.h"
 #include "AArch64MachineFunctionInfo.h"
 #include "AArch64Subtarget.h"
@@ -196,9 +197,28 @@ void AArch64PointerAuth::authenticateLR(
             .setMIFlag(MachineInstr::FrameDestroy);
         emitPACCFI(MBB, MBBI, MachineInstr::FrameDestroy, EmitAsyncCFI);
       }
-      BuildMI(MBB, MBBI, DL,
-              TII->get(UseBKey ? AArch64::AUTIBSP : AArch64::AUTIASP))
-          .setMIFlag(MachineInstr::FrameDestroy);
+      // On arm64e, when a tail call has a non-zero FPDiff (callee needs
+      // different stack arg space), the epilogue adjusts SP before reaching
+      // here. SP no longer equals the entry SP used by PACIBSP. Compute the
+      // entry SP into X16 and use explicit AUTIB instead of AUTIBSP.
+      // entry_SP = SP - FPDiff (FPDiff is negative when callee needs more
+      // space, positive when less).
+      auto &AFL = *static_cast<const AArch64FrameLowering *>(
+          MF.getSubtarget().getFrameLowering());
+      int64_t FPDiff = AFL.getArgumentStackToRestore(MF, MBB);
+      if (FPDiff != 0 && UseBKey) {
+        emitFrameOffset(MBB, MBBI, DL, AArch64::X16, AArch64::SP,
+                        StackOffset::getFixed(-FPDiff), TII,
+                        MachineInstr::FrameDestroy);
+        BuildMI(MBB, MBBI, DL, TII->get(AArch64::AUTIB), AArch64::LR)
+            .addUse(AArch64::LR)
+            .addUse(AArch64::X16)
+            .setMIFlag(MachineInstr::FrameDestroy);
+      } else {
+        BuildMI(MBB, MBBI, DL,
+                TII->get(UseBKey ? AArch64::AUTIBSP : AArch64::AUTIASP))
+            .setMIFlag(MachineInstr::FrameDestroy);
+      }
       if (!MFnI->branchProtectionPAuthLR())
         emitPACCFI(MBB, MBBI, MachineInstr::FrameDestroy, EmitAsyncCFI);
     }

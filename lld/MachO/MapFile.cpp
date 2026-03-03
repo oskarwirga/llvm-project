@@ -149,7 +149,9 @@ static void printNonLazyPointerSection(raw_fd_ostream &os,
   // associations.
   for (const Symbol *sym : osec->getEntries())
     os << format("0x%08llX\t0x%08zX\t[  0] non-lazy-pointer-to-local: %s\n",
-                 osec->addr + sym->gotIndex * target->wordSize,
+                 osec->addr + (osec->getIsAuth() ? sym->authGotIndex
+                                                 : sym->gotIndex) *
+                                  target->wordSize,
                  target->wordSize, sym->getName().str().data());
 }
 

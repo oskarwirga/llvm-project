@@ -101,7 +101,14 @@ static uint64_t resolveSymbolOffsetVA(const Symbol *sym, uint8_t type,
     // There's no meaningful way to "interpose" an interior offset.
     symVA = (offset != 0) ? sym->getVA() : sym->resolveBranchVA();
   } else if (relocAttrs.hasAttr(RelocAttrBits::GOT)) {
-    symVA = sym->resolveGotVA();
+    // GOT_LOAD (no POINTER attr) should use regular __got when available,
+    // because the compiler applies paciza on the loaded value and needs
+    // a raw (non-auth) pointer. POINTER_TO_GOT (has POINTER attr) should
+    // use __auth_got (the default from getGotVA/resolveGotVA).
+    if (!relocAttrs.hasAttr(RelocAttrBits::POINTER) && sym->isInGot())
+      symVA = in.got->getVA(sym->gotIndex);
+    else
+      symVA = sym->resolveGotVA();
   } else if (relocAttrs.hasAttr(RelocAttrBits::TLV)) {
     symVA = sym->resolveTlvVA();
   } else {
@@ -262,15 +269,34 @@ void ConcatInputSection::writeTo(uint8_t *buf) {
         // contiguous).
         referentVA -= firstTLVDataSection->addr;
       } else if (needsFixup) {
-        writeChainedFixup(loc, referentSym, r.addend);
+        // Only use auth info from the reloc if it was an AUTH relocation type.
+        std::optional<Relocation::AuthInfo> ai = r.auth;
+        uint64_t segmentBase = 0;
+        if (auto *def = dyn_cast<Defined>(referentSym))
+          if (InputSection *isec = def->isec())
+            segmentBase = isec->parent->parent->addr;
+
+        writeChainedFixup(loc, referentSym, r.addend, segmentBase,
+                          ai ? &*ai : nullptr, r.authEncodingBits);
         continue;
       }
     } else if (auto *referentIsec = r.referent.dyn_cast<InputSection *>()) {
       assert(!::shouldOmitFromOutput(referentIsec));
       referentVA = referentIsec->getVA(r.addend);
 
+      // For arm64e UNSIGNED relocations with auth-encoded data, OR the auth
+      // encoding bits into the final target value.
+      if (r.authEncodingBits)
+        referentVA |= (static_cast<uint64_t>(r.authEncodingBits) << 32);
+
       if (needsFixup) {
-        writeChainedRebase(loc, referentVA);
+        // Only use auth info from the reloc if it was an AUTH relocation type.
+        std::optional<Relocation::AuthInfo> ai = r.auth;
+        uint64_t segmentBase = referentIsec->parent->parent->addr;
+        // When authEncodingBits is set, treat as non-auth rebase (ai=nullptr)
+        writeChainedRebase(loc, referentVA, segmentBase,
+                           r.authEncodingBits ? nullptr
+                                              : (ai ? &*ai : nullptr));
         continue;
       }
     }

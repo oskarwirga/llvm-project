@@ -132,6 +132,8 @@ public:
 private:
   llvm::SetVector<const Symbol *> entries;
   bool isAuth;
+public:
+  bool getIsAuth() const { return isAuth; }
 };
 
 class GotSection final : public NonLazyPointerSectionBase {

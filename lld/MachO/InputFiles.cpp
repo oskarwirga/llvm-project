@@ -201,6 +201,20 @@ static bool compatWithTargetArch(const InputFile *file, const Header *hdr) {
     return false;
   }
 
+  // When targeting arm64e, reject plain arm64 objects. arm64e requires pointer
+  // authentication for ObjC class metadata (isa, superclass, class_ro), and
+  // arm64 objects don't have this signing. Mixing them produces binaries that
+  // crash at runtime with EXC_ARM_PAC_FAIL when the ObjC runtime loads classes.
+  // We warn and exclude the file, which will cause undefined symbol errors for
+  // any symbols that were expected from this file.
+  if (config->arch() == AK_arm64e &&
+      hdr->cputype == CPU_TYPE_ARM64 &&
+      (hdr->cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64_ALL) {
+    warn(toString(file) + " has architecture arm64 which is incompatible with "
+         "target architecture arm64e (arm64e requires pointer authentication)");
+    return false;
+  }
+
   return checkCompatibility(file);
 }
 

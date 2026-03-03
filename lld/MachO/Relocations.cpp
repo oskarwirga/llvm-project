@@ -18,7 +18,7 @@ using namespace llvm;
 using namespace lld;
 using namespace lld::macho;
 
-static_assert(sizeof(void *) != 8 || sizeof(Relocation) == 24,
+static_assert(sizeof(void *) != 8 || sizeof(Relocation) == 40,
               "Try to minimize Reloc's size; we create many instances");
 
 InputSection *Relocation::getReferentInputSection() const {

@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace lld::macho {
 LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
@@ -41,7 +42,8 @@ enum class RelocAttrBits {
   LOAD = 1 << 13,      // Relaxable indirect load
   POINTER = 1 << 14,   // Non-relaxable indirect load (pointer is taken)
   UNSIGNED = 1 << 15,  // *_UNSIGNED relocs
-  LLVM_MARK_AS_BITMASK_ENUM(/*LargestValue*/ (1 << 16) - 1),
+  AUTH = 1 << 16,      // ARM64e ptrauth relocs
+  LLVM_MARK_AS_BITMASK_ENUM(/*LargestValue*/ (1 << 17) - 1),
 };
 // Note: SUBTRACTOR always pairs with UNSIGNED (a delta between two symbols).
 
@@ -62,6 +64,19 @@ struct Relocation {
   // gives the destination that this relocation refers to.
   int64_t addend = 0;
   llvm::PointerUnion<Symbol *, InputSection *> referent = nullptr;
+
+  struct AuthInfo {
+    uint16_t diversity;
+    uint8_t key; // 0-3 (IA/IB/DA/DB)
+    bool addrDiv;
+  };
+  std::optional<AuthInfo> auth;
+
+  // For arm64e UNSIGNED relocations with auth-encoded data (bit 63 set),
+  // this stores the high 32 bits that should be OR'd into the final target.
+  // This is used for C++ RTTI pointers that have auth encoding but use
+  // UNSIGNED relocations.
+  uint32_t authEncodingBits = 0;
 
   Relocation() = default;
 
@@ -126,6 +141,6 @@ InputSection *offsetToInputSection(uint64_t *);
 
 extern const RelocAttrs invalidRelocAttrs;
 
-} // namespace lld::Macho
+} // namespace lld::macho
 
 #endif
